@@ -15,6 +15,7 @@
 #   LOG_HTTP_PORT: port for our logging Connect server to listen on (default 8081)
 #   LOG_STEALTH:   If set, bot will not announce that it is logging in chat
 #   LOG_MESSAGES_ONLY: If set, bot will not log room enter or leave events
+#   LOG_CHARSET:   Charset for serving the logs (default 'utf-8' if unset)
 #
 # Commands:
 #   hubot send me today's logs - messages you the logs for today
@@ -110,6 +111,13 @@ module.exports = (robot) ->
   ## HTTP interface ##
   ####################
 
+  charset = process.env.LOG_CHARSET || 'utf-8'
+  if charset?
+    charset_parameter = '; charset:' + charset
+    charset_meta = '<meta charset="utf-8" />'
+  else
+    charset_parameter = charset_meta = ''
+
   connect = Connect()
   connect.use Connect.basicAuth(process.env.LOG_HTTP_USER || 'logs', process.env.LOG_HTTP_PASS || 'changeme')
   connect.use Connect.bodyParser()
@@ -117,12 +125,12 @@ module.exports = (robot) ->
   connect.use Connect.router (app) ->
     app.get '/', (req, res) ->
       res.statusCode = 200
-      res.setHeader 'Content-Type', 'text/html'
-      res.end views.index
+      res.setHeader 'Content-Type', 'text/html' + charset_parameter
+      res.end views.index(charset_meta: charset_meta)
 
     app.get '/logs/view', (req, res) ->
       res.statusCode = 200
-      res.setHeader 'Content-Type', 'text/html'
+      res.setHeader 'Content-Type', 'text/html' + charset_parameter
       if not (req.query.start && req.query.end)
         res.end '<strong>No start or end date provided</strong>'
       m_start = parseInt(req.query.start)
@@ -135,14 +143,14 @@ module.exports = (robot) ->
       room = req.query.room || 'general'
       presence = !!req.query.presence
       get_logs_for_range client, m_start, m_end, room, (replies) ->
-        res.write views.log_view.head
+        res.write views.log_view.head(charset_meta: charset_meta)
         res.write format_logs_for_html(replies, presence).join("\r\n")
         res.end views.log_view.tail
 
     app.get '/logs/:room', (req, res) ->
       res.statusCode = 200
-      res.setHeader 'Content-Type', 'text/html'
-      res.write views.log_view.head
+      res.setHeader 'Content-Type', 'text/html' + charset_parameter
+      res.write views.log_view.head(charset_meta: charset_meta)
       res.write "<h2>Logs for #{req.params.room}</h2>\r\n"
       res.write "<ul>\r\n"
 
@@ -158,20 +166,20 @@ module.exports = (robot) ->
         days.sort (a, b) ->
             return b.diff(a)
         days.forEach (date) ->
-          res.write "<li><a href=\"/logs/#{req.params.room}/#{date.format('YYYYMMDD')}\">#{date.format('dddd, MMMM Do YYYY')}</a></li>\r\n"
+          res.write "<li><a href=\"/logs/#{encodeURIComponent(req.params.room)}/#{date.format('YYYYMMDD')}\">#{date.format('dddd, MMMM Do YYYY')}</a></li>\r\n"
         res.write "</ul>"
         res.end views.log_view.tail
 
     app.get '/logs/:room/:id', (req, res) ->
       res.statusCode = 200
-      res.setHeader 'Content-Type', 'text/html'
+      res.setHeader 'Content-Type', 'text/html' + charset_parameter
       presence = !!req.query.presence
       id = parseInt req.params.id
       if isNaN(id)
         res.end "Bad log ID"
         return
       get_log client, req.params.room, id, (logs) ->
-        res.write views.log_view.head
+        res.write views.log_view.head(charset_meta: charset_meta)
         res.write format_logs_for_html(logs, presence).join("\r\n")
         res.end views.log_view.tail
 
@@ -325,7 +333,7 @@ format_logs_for_html = (logs, presence=true) ->
                           <p>#{l.time}</p>
                         </div>
                         <div class="span10">
-                          <p><span class="username">#{l.from}</span> joined</p>
+                          <p><span class="username">#{escapeHTML(l.from)}</span> joined</p>
                         </div>
                       </div>
                     """
@@ -335,7 +343,7 @@ format_logs_for_html = (logs, presence=true) ->
                           <p>#{l.time}</p>
                         </div>
                         <div class="span10">
-                          <p><span class="username">#{l.from}</span> left</p>
+                          <p><span class="username">#{escapeHTML(l.from)}</span> left</p>
                         </div>
                       </div>
                     """
@@ -345,7 +353,7 @@ format_logs_for_html = (logs, presence=true) ->
                           <p>#{l.time}</p>
                         </div>
                         <div class="span10">
-                          <p>&lt;<span class="username">#{l.from}</span>&gt;&nbsp;#{l.message}</p>
+                          <p>&lt;<span class="username">#{escapeHTML(l.from)}</span>&gt;&nbsp;#{escapeHTML(l.message)}</p>
                         </div>
                       </div>
                    """
@@ -530,16 +538,19 @@ log_message = (redis, robot, response) ->
   room = response.message.user.room || 'general'
   redis.rpush("logs:#{room}:#{date_id()}", entry)
 
+escapeHTML = (str) ->
+  str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 ####################
 ##     Views      ##
 ####################
 
 views =
-  index: """
+  index: (context) -> """
     <!DOCTYPE html>
     <html>
       <head>
+        #{ context.charset_meta }
         <title>View logs</title>
         <link href="//netdna.bootstrapcdn.com/twitter-bootstrap/2.1.1/css/bootstrap-combined.min.css" rel="stylesheet">
       </head>
@@ -567,10 +578,11 @@ views =
       </body>
     </html>"""
   log_view:
-    head: """
+    head: (context) -> """
       <!DOCTYPE html>
       <html>
         <head>
+          #{ context.charset_meta }
           <title>Viewing logs</title>
           <link href="//netdna.bootstrapcdn.com/twitter-bootstrap/2.1.1/css/bootstrap-combined.min.css" rel="stylesheet">
           <style type="text/css">
