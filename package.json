@@ -2,9 +2,9 @@
     "name": "hubot-logger",
     "version": "0.0.1",
     "dependencies": {
-        "redis": ">=0.7.2",
-        "moment": ">=1.7.0",
-        "connect": ">=2.4.5",
-        "connect_router": "*"
+        "redis": "~0.7.2",
+        "moment": "~1.7.0",
+        "connect": "~2.4.5",
+        "connect_router": "~1.8.7"
     }
 }
